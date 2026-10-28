@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["numpy>=1.26,<2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7"]
+dev = ["pytest>=7", "mypy>=1"]
 # GPU stack: CoTracker3 tracking and SAM 3.1 segmentation (RTX 5070 Ti, cu128 wheels).
 gpu = [
     "torch>=2.7",
@@ -22,6 +22,9 @@ gpu = [
     "pycocotools",
     "psutil",
 ]
+
+[tool.mypy]
+check_untyped_defs = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
