@@ -2,25 +2,26 @@
 
 Measuring deformation of a stretched specimen from video, and testing whether measurement-guided query placement beats a lattice baseline at the same query budget.
 
-The first complete experiment runs a synthetic uniform-extension sequence through lattice placement, oracle tracking, a k-nearest strain estimator, full-field evaluation, and an immutable results store. It runs on CPU with NumPy; learned tracking, adaptive placement, and real-data evaluation are future work.
+The first complete experiment runs a synthetic uniform-extension sequence through lattice placement, oracle tracking, a k-nearest strain estimator, full-field evaluation, and an immutable results store. It runs on CPU with NumPy. CoTracker3 and SAM 3.1 have been checked in the GPU environment; their pipeline adapters, adaptive placement, and real-data evaluation are future work.
 
 ## Run the experiment
 
-Use Python 3.12 for the experiment environment:
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
-python -m strainsight.demo
+uv sync --extra dev                 # add --extra gpu on the CUDA PC (CoTracker3, SAM 3.1)
+uv run pytest
+uv run python -m strainsight.demo
 ```
 
 The demo renders 32 frames at 512×384 px and scores every fourth frame after the reference frame. It prints the run ID, query count, full-field E_XX mean absolute error, coverage loss, runtime, and results-store path. Oracle tracking should give MAE near floating-point precision and zero coverage loss.
 
+The `gpu` extra keeps torch and torchvision on the PyTorch cu128 index and CoTracker3 / SAM 3.1 at pinned Git commits. GPU setup, smoke checks, and measured runtime / VRAM are documented in [docs/environment.md](docs/environment.md).
+
 Choose a baseline spacing, a sub-spacing lattice offset, and a results directory:
 
 ```bash
-python -m strainsight.demo --spacing 8 --offset 1.5 2.5 --results-dir outputs/results
+uv run python -m strainsight.demo --spacing 8 --offset 1.5 2.5 --results-dir outputs/results
 ```
 
 Records live in `outputs/results/runs.sqlite3` by default. Each run gets a distinct ID; inserting another record with that ID raises `FileExistsError`. SQLite transactions make writes atomic. Read a completed record through the store:
@@ -47,9 +48,9 @@ print(record.configuration, record.metrics, record.query_count, record.runtime_s
 ## Development
 
 ```bash
-python -m mypy src/strainsight tests
-python -m pytest tests/test_pipeline.py
-python -m pytest
+uv run python -m mypy src/strainsight tests
+uv run python -m pytest tests/test_pipeline.py
+uv run python -m pytest
 ```
 
 Pipeline tests inject trackers at the agreed experiment boundary and check the physics, geometry, budget, independent evaluation, loss handling, inverse-warp rejection, and results-store immutability. The old farthest-point sampler and two-point engineering strain estimator remain only as legacy sanity checks in `tests/test_core.py`.

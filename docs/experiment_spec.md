@@ -125,8 +125,8 @@ All terms below are as defined in the project glossary; the budget and estimator
 - Refinement score = (weighted strain-gradient term + coverage term) × visibility gate, using the max over frames of a temporally smoothed score; weights tuned once on dev sequences under CoTracker, frozen, and reused unchanged under oracle tracking.
 - Ground truth is read only by the evaluation module (and by the oracle tracker, at query points only).
 - Pre-registration document committed to the repo before the first test run; its commit is the freeze.
-- Python 3.12 single environment (SAM 3.1 requires ≥ 3.12; CUDA ≥ 12.6, cu128 builds for the RTX 5070 Ti); separate SAM environment only as fallback.
-- Estimated tracker workload ≈ 1,150 runs, roughly 20 min – 1.6 h GPU time at an assumed 1–5 s per run; to be replaced by a measured per-run time in milestone 1.
+- Python 3.12 single environment (SAM 3.1 requires ≥ 3.12; CUDA ≥ 12.6, cu128 builds for the RTX 5070 Ti); confirmed in milestone 1 with CoTracker3 and SAM 3.1 in one environment, so no separate SAM environment (see `docs/environment.md`).
+- Estimated tracker workload ≈ 1,150 runs, roughly 7–18 min GPU time at a measured 0.34–0.92 s per 32-frame run (N = 315–1290) and ≤ 5.1 GB VRAM on the RTX 5070 Ti (`docs/environment.md`).
 
 ### Milestones
 1. **Environment and facts**: Python 3.12 env; CoTracker install and one timed run on the RTX 5070 Ti; confirm 384×512 resize behaviour end to end; SAM 3.1 local install check (HF access pending); record per-run time and update the GPU estimate.
@@ -161,8 +161,7 @@ All terms below are as defined in the project glossary; the budget and estimator
 ### Unverified (must be confirmed before relying on them)
 - Official hackathon rules, required deliverables, and judging weights (reported: Impact 30, Meta tooling 25, Demo 25, Technical depth 20).
 - Muse Spark's tool-calling format on the Meta Model API, and whether API uploads are retained or used for training.
-- SAM 3.1 weights access (gated on Hugging Face, SAM License), compatibility with the RTX 5070 Ti, and image prompt types beyond text and boxes.
-- CoTracker per-run time and VRAM on the target GPU.
+- SAM 3.1 text prompts on real Sample6 frames (text found nothing on a synthetic frame; box prompts work), and point prompts (in the API, untested).
 - Licensing of DIC Challenge datasets (no licence found; downloads are open).
 
 ### Known facts behind the decisions
