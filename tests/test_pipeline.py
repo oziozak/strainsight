@@ -117,6 +117,29 @@ def test_lost_tracks_count_against_budget_and_show_as_coverage_loss(tmp_path):
     assert np.isnan(result.strain[-1]).all()
 
 
+def test_tracker_resources_and_settings_are_preserved_in_run_record(tmp_path):
+    class MeasuredTracker(OracleTracker):
+        name = "measured_fixture"
+        support_grid_count = 36
+
+        def track(self, frames, query_points):
+            tracks = super().track(frames, query_points)
+            return replace(tracks, runtime_seconds=0.25, peak_vram_bytes=123456,
+                           configuration={"support_grid_size": 6, "visibility_threshold": 0.9,
+                                          "confidence_used": False})
+
+    store = ResultsStore(tmp_path)
+    result = run_experiment(ExperimentConfig(frame_count=2, score_every=1),
+                            MeasuredTracker(), store)
+    record = store.read(result.record.run_id)
+    assert record.tracker_runtime_seconds == 0.25
+    assert record.peak_vram_bytes == 123456
+    assert record.configuration["tracker_settings"] == {
+        "support_grid_size": 6, "visibility_threshold": 0.9, "confidence_used": False}
+    assert record.configuration["support_grid_count"] == 36
+    assert record.query_count == 523  # Auxiliary support grid is excluded.
+
+
 @pytest.mark.parametrize("available", ["none", "five", "collinear"])
 def test_unobservable_strain_is_missing_instead_of_a_zero_error(tmp_path, available):
     class InsufficientTracker(OracleTracker):

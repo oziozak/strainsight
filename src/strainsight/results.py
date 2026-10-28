@@ -13,6 +13,8 @@ class RunRecord:
     metrics: dict[str, float | None]
     query_count: int
     runtime_seconds: float
+    tracker_runtime_seconds: float | None = None
+    peak_vram_bytes: int = 0
 
 
 class ResultsStore:
