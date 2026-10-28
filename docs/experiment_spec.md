@@ -174,8 +174,12 @@ Report the null result on the pre-registered metrics, then show what the pipelin
 
 ### Decision rule (pre-registered)
 The adaptive method **outperforms** the lattice baseline if, at the nominal budget (s = 6.4 px), under CoTracker, with the k-nearest strain estimator, both hold:
-- (a) **High-strain-region E_XX MAE is lower**, with the paired 95% bootstrap confidence interval of the difference (adaptive − baseline) excluding zero; pairs are test sequence × lattice offset.
-- (b) **Full-field E_XX MAE is not worse by more than 5% relative** (non-inferiority margin).
+- (a) **High-strain-region E_XX MAE is lower** on the necking test sequences only, with the paired 95% bootstrap confidence interval of the difference (adaptive − baseline) excluding zero; pairs are test sequence × lattice offset.
+- (b) **Full-field E_XX MAE is not worse by more than 5% relative** (non-inferiority margin) over all test sequences, including controls.
+
+Clarifications:
+- Pass/fail is evaluated pooled over both speckle strata; per-stratum results are reported descriptively.
+- The confidence interval is a cluster bootstrap: each resample draws whole test sequences with replacement, keeping all of a sequence's lattice offsets together; 10,000 resamples, percentile interval.
 
 The budget curve, the fixed-radius estimator, and the oracle-tracking condition are reported descriptively, not as pass/fail.
 
