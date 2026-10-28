@@ -21,6 +21,8 @@ def main() -> None:
     print(f"Lattice baseline query budget: {record.query_count}")
     print(f"Full-field E_XX MAE: {record.metrics['full_field_exx_mae']}")
     print(f"Coverage loss: {record.metrics['coverage_loss']}")
+    print(f"Fixed-radius E_XX MAE: {record.metrics['fixed_radius_exx_mae']}")
+    print(f"Fixed-radius coverage loss: {record.metrics['fixed_radius_coverage_loss']}")
     print(f"Runtime: {record.runtime_seconds:.3f} s")
     print(f"Immutable results: {store.path}")
 

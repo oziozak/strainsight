@@ -11,7 +11,8 @@ from .dataset import SyntheticCase, frozen_dataset, generator_identity
 from .results import ResultsStore, RunRecord
 from .sampling import lattice_baseline
 from .specimen import dog_bone
-from .strain import k_nearest_strain
+from .strain import (BASELINE_RADIUS_SPACINGS, CONDITION_LIMIT, MINIMUM_NEIGHBOURS,
+                     baseline_neighbour_counts, fixed_radius_strain, k_nearest_strain)
 from .synthetic import SyntheticSequence, TensileMotion, UniformExtension, render_sequence
 from .tracking import OracleTracker, Tracker, Tracks
 
@@ -57,6 +58,7 @@ class ExperimentResult:
     scored_frames: np.ndarray
     strain: np.ndarray
     ground_truth_strain: np.ndarray
+    fixed_radius_strain: np.ndarray
 
 
 def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsStore,
@@ -65,7 +67,7 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
     identity = generator_identity()
     specimen = dog_bone()
     query_points = lattice_baseline(specimen.sampling_region, config.spacing, config.lattice_offset)
-    if len(query_points) < 6:
+    if len(query_points) < MINIMUM_NEIGHBOURS:
         raise ValueError("lattice baseline must contain at least six query points")
     case = config.synthetic_case
     expected_motion = case.motion if case is not None else UniformExtension(config.final_stretch)
@@ -82,18 +84,29 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
     # Fixed 4 px evaluation grid, independent of the placement spacing/offset.
     evaluation_grid = lattice_baseline(specimen.gauge_section & specimen.eroded_mask, 4, (0, 0))
     scored_frames = np.arange(config.score_every, config.frame_count, config.score_every)
-    k = round(np.pi * 2.5**2)
+    radius = BASELINE_RADIUS_SPACINGS * config.spacing
+    # Calibrate on the intact baseline geometry, before per-frame track loss.
+    # Reuse these counts unchanged when comparing another placement method.
+    k = baseline_neighbour_counts(query_points, evaluation_grid, radius)
     strain = np.stack([k_nearest_strain(query_points, tracks.positions[frame],
                                        tracks.visibility[frame], evaluation_grid, k)
                        for frame in scored_frames])
+    secondary_strain = np.stack([fixed_radius_strain(query_points, tracks.positions[frame],
+                                                    tracks.visibility[frame], evaluation_grid, radius)
+                                 for frame in scored_frames])
     truth = np.stack([motion.strain_at(evaluation_grid, frame / (config.frame_count - 1))
                       for frame in scored_frames])
-    defined = np.isfinite(strain).all(axis=(-2, -1))
-    errors = np.abs(strain[..., 0, 0] - truth[..., 0, 0])
-    metrics = {"full_field_exx_mae": float(errors[defined].mean()) if defined.any() else None,
-               "coverage_loss": float(1 - defined.mean()),
-               "tracking_failure_fraction": float(1 - (tracks.visibility[scored_frames] &
-                   np.isfinite(tracks.positions[scored_frames]).all(axis=-1)).mean())}
+    metrics: dict[str, float | None] = {
+        "tracking_failure_fraction": float(1 - (tracks.visibility[scored_frames] &
+            np.isfinite(tracks.positions[scored_frames]).all(axis=-1)).mean())}
+    for field, error_metric, coverage_metric in (
+        (strain, "full_field_exx_mae", "coverage_loss"),
+        (secondary_strain, "fixed_radius_exx_mae", "fixed_radius_coverage_loss"),
+    ):
+        defined = np.isfinite(field).all(axis=(-2, -1))
+        errors = np.abs(field[..., 0, 0] - truth[..., 0, 0])
+        metrics[error_metric] = float(errors[defined].mean()) if defined.any() else None
+        metrics[coverage_metric] = float(1 - defined.mean())
     configuration = json.loads(json.dumps(asdict(config)))
     dataset = frozen_dataset()
     split = "dev" if case in dataset.dev else "test" if case in dataset.test else "custom"
@@ -102,7 +115,10 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
                           "generator_version": identity.version, "generator_sha256": identity.sha256,
                           "dataset_split": split, "numpy_version": np.__version__,
                           "estimator": "k_nearest",
-                          "k": k, "minimum_neighbours": 6, "condition_limit": 1e6,
+                          "k": k.tolist(), "k_calibration": "intact_lattice_baseline",
+                          "fixed_radius": radius,
+                          "secondary_estimator": "fixed_radius",
+                          "minimum_neighbours": MINIMUM_NEIGHBOURS, "condition_limit": CONDITION_LIMIT,
                           "erosion_px": 4, "evaluation_spacing": 4,
                           "scored_frames": scored_frames.tolist(),
                           "speckle_stratum": "1.5–3 px" if config.speckle_size < 3 else "3–5 px",
@@ -111,4 +127,4 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
     record = RunRecord(uuid4().hex, configuration, metrics, len(query_points), perf_counter() - started)
     store.write(record)
     return ExperimentResult(record, sequence, query_points, tracks, evaluation_grid,
-                            scored_frames, strain, truth)
+                            scored_frames, strain, truth, secondary_strain)
