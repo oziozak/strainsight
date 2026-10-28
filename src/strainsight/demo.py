@@ -14,6 +14,8 @@ def main() -> None:
     parser.add_argument("--offset", type=float, nargs=2, default=(0.0, 0.0), metavar=("X", "Y"))
     parser.add_argument("--tracker", choices=("oracle", "cotracker"), default="oracle")
     parser.add_argument("--checkpoint", type=Path, help="local CoTracker3 offline checkpoint")
+    parser.add_argument("--visualize", type=Path, nargs="?", const=Path("outputs/tracking.html"),
+                        metavar="HTML", help="save interactive track playback (default: outputs/tracking.html)")
     args = parser.parse_args()
     if args.checkpoint is not None and args.tracker != "cotracker":
         parser.error("--checkpoint requires --tracker cotracker")
@@ -36,6 +38,11 @@ def main() -> None:
     print(f"Tracker runtime: {record.tracker_runtime_seconds} s")
     print(f"Peak VRAM: {record.peak_vram_bytes / 2**20:.1f} MiB")
     print(f"Immutable results: {store.path}")
+    if args.visualize is not None:
+        from .visualization import write_tracking_view
+
+        path = write_tracking_view(result, args.visualize)
+        print(f"Track playback: {path.resolve()}")
 
 
 if __name__ == "__main__":

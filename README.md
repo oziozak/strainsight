@@ -35,6 +35,23 @@ uv run python scripts/smoke_cotracker_adapter.py
 
 The adapter uses the offline predictor's visibility rule (`visibility > 0.9`, confidence unused) and its fixed 6×6 support grid. These 36 auxiliary points are identical for every query set and excluded from the query budget and strain estimates. Lost queries stay in the budget, are excluded only in frames where invisible, and are never replaced. The opt-in smoke check uses the real CUDA model at two budgets and checks RGB resizing as well as persisted resources; it is outside the default test suite.
 
+Watch the query points move over the actual frames:
+
+```bash
+uv run python -m strainsight.demo --tracker cotracker --visualize
+# Or choose a filename; oracle tracking also supports --visualize:
+uv run python -m strainsight.demo --visualize outputs/oracle-tracks.html
+```
+
+Open the printed HTML path in your browser (`outputs/tracking.html` by default).
+The viewer includes play/pause, frame stepping, a scrubber, speed control, colored
+query points, short trajectory trails, and optional reference positions. Red
+crosses mark invisible predictions; per-frame visible/lost counts include
+non-finite positions, which have no marker. The HTML embeds the frames and tracks
+and works offline without extra packages or a server. The file is written from
+that invocation's tracking output; existing SQLite records contain summary
+metrics rather than saved video/tracks, so rerun with `--visualize` to inspect them.
+
 Records live in `outputs/results/runs.sqlite3` by default. Each run gets a distinct ID; inserting another record with that ID raises `FileExistsError`. SQLite transactions make writes atomic. Read a completed record through the store:
 
 ```python
