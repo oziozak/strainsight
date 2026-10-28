@@ -1,76 +1,63 @@
 # StrainSight
 
-**Mask-guided adaptive point tracking for deformation measurement** — Meta Hackathon prototype.
+Measuring deformation of a stretched specimen from video, and testing whether measurement-guided query placement beats a lattice baseline at the same query budget.
 
-StrainSight segments a deforming specimen, samples tracking queries **inside its mask**, tracks them across a video, estimates displacement and strain, and allocates additional queries to informative regions. The goal is to evaluate whether adaptive query allocation improves strain estimation at a fixed tracking budget.
+The first complete experiment runs a synthetic uniform-extension sequence through lattice placement, oracle tracking, a k-nearest strain estimator, full-field evaluation, and an immutable results store. It runs on CPU with NumPy; learned tracking, adaptive placement, and real-data evaluation are future work.
 
-## Architecture
+## Run the experiment
 
-```text
-Video frames → specimen mask → mask-constrained baseline points
-            → point trajectories → displacement / local strain
-            → refinement score → additional points → strain visualization
-```
-
-Initially the user supplies a binary specimen mask for frame 0; SAM integration is a later module. Tracking is initially model-agnostic; CoTracker integration is planned. Neither segmentation nor learned tracking is falsely presented as implemented here.
-
-## First runnable baseline
-
-Requires Python 3.10+.
+Use Python 3.12 for the experiment environment:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate           # Windows PowerShell: .venv\Scripts\Activate.ps1
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -e '.[dev]'
-pytest
 python -m strainsight.demo
 ```
 
-The demo creates a synthetic rectangular specimen, samples masked points, applies known uniaxial extension, and estimates axial engineering strain. This is **not** a benchmark on real DIC images.
+The demo renders 32 frames at 512×384 px and scores every fourth frame after the reference frame. It prints the run ID, query count, full-field E_XX mean absolute error, coverage loss, runtime, and results-store path. Oracle tracking should give MAE near floating-point precision and zero coverage loss.
 
-## Next milestones
+Choose a baseline spacing, a sub-spacing lattice offset, and a results directory:
 
-1. **Dataset loader:** select a small DIC Challenge sequence with accessible reference displacement / strain data and document evaluation region/units.
-2. **Segmentation:** manual/reference mask baseline first; experiment with Meta SAM when feasible.
-3. **Tracking:** integrate CoTracker / equivalent, monitor visibility and mask drift.
-4. **Evaluation:** compare mask-constrained uniform vs mask-constrained adaptive under equal tracking-query budgets.
-5. **Policy:** rank cells by estimated strain gradients, spatial coverage, and trajectory confidence, and retrack additional points in informative regions.
-6. **Demo:** displacement and strain heatmaps with a Meta-model assistant querying computed results (no invented physics measurements).
-
-## Evaluation guardrails
-
-- Compare **both policies inside the same specimen mask**; do not compare adaptive masked against whole-scene uniform.
-- Keep query count, initialization frames, and model settings matched.
-- Hold out independent ground truth; do not grade against a reference used for sampling decisions.
-- Report strain/displacement errors and wall time / GPU memory.
-- Keep point correspondences in the material reference frame; a changing mask must not silently replace lost points.
-
-## Hardware
-
-Main vision development: RTX 5070 Ti PC (CUDA). Mac M2 Pro: frontend, documentation and light tests.
-
-## Repository layout
-
-```text
-src/strainsight/         Core algorithms and demo
-  sampling.py            Mask-constrained uniform/grid samples
-  strain.py              Engineering axial strain estimator
-  demo.py                Tiny synthetic validation
- tests/                  Unit tests
- docs/idea.md            Hackathon project scope
+```bash
+python -m strainsight.demo --spacing 8 --offset 1.5 2.5 --results-dir outputs/results
 ```
 
-## Status
+Records live in `outputs/results/runs.sqlite3` by default. Each run gets a distinct ID; inserting another record with that ID raises `FileExistsError`. SQLite transactions make writes atomic. Read a completed record through the store:
 
-- [x] Project scaffold
-- [x] Mask-constrained fixed-budget sampler
-- [x] Synthetic axial engineering strain demonstration
-- [ ] Real dataset ingestion
-- [ ] Segmentation model
-- [ ] Pretrained point-tracker integration
-- [ ] Adaptive query policy
-- [ ] End-to-end Meta AI assistant
+```python
+from strainsight.results import ResultsStore
+
+record = ResultsStore("outputs/results").read("<run ID printed by the demo>")
+print(record.configuration, record.metrics, record.query_count, record.runtime_seconds)
+```
+
+## What the tracer bullet measures
+
+- The reference specimen is a horizontal dog-bone with a 256×64 px gauge section, circular 64 px fillets, 102 px grips, and a 380 px visible reference length. These dimensions give 16.492 px of each grip in view (approximately 0.25 gauge widths).
+- A 4 px Euclidean disk erodes the reference specimen mask. Only the gauge section and fillets in that eroded mask receive query points; grips receive none. Masks classify pixel centres, and subpixel membership uses the nearest pixel centre.
+- The lattice baseline's count defines the query budget. At zero offset, spacings 4.0, 5.3, 6.4, and 8.0 px give 1357, 759, 523, and 317 query points, respectively. Counts vary with lattice offset.
+- A seeded analytic Gaussian speckle texture is evaluated through the inverse reference-configuration motion map at each output pixel. Nonfinite inversions or forward–inverse residuals above 0.01 px reject the sequence before tracking.
+- Uniform extension ramps from stretch 1 to 1.1 with incompressible lateral contraction. Strain is 2D Green–Lagrange strain: the final E_XX is 0.105, and E_YY is approximately −0.04545.
+- The tracker boundary takes only frames and query points and returns their positions and Boolean visibility. The oracle returns true positions only at those queries and uses no support grid. For a custom stretch, supply `OracleTracker(UniformExtension(config.final_stretch))`; mismatched oracle configurations are rejected. Injected trackers declare their name and support-grid count.
+- The unweighted affine least-squares estimator uses k = round(π × 2.5²) = 20 nearest visible query points in the reference configuration. Fewer than six neighbours, deficient rank, or a design condition number above 10⁶ give undefined strain.
+- Evaluation uses a fixed 4 px grid over the eroded gauge section, independent of placement. Full-field E_XX MAE averages defined positions across scored frames; coverage loss reports the undefined fraction separately. If every estimate is undefined, MAE is `None`, stored as JSON `null`. Lost tracks retain their place in the query budget and are never replaced.
+- Records contain configuration, the generator version and rendered-frame SHA-256, speckle stratum, query count, metrics, and total CPU pipeline runtime (rendering through evaluation, excluding persistence). This tracer bullet uses synthetic development/sanity sequences; held-out benchmark runs and their pre-registration are later work.
+
+## Development
+
+```bash
+python -m mypy src/strainsight tests
+python -m pytest tests/test_pipeline.py
+python -m pytest
+```
+
+Pipeline tests inject trackers at the agreed experiment boundary and check the physics, geometry, budget, independent evaluation, loss handling, inverse-warp rejection, and results-store immutability. The old farthest-point sampler and two-point engineering strain estimator remain only as legacy sanity checks in `tests/test_core.py`.
+
+`src/strainsight/` contains the specimen geometry, synthetic generator, placement, tracker interface, strain estimator, experiment runner, results store, and demo. The full protocol and future milestones are in [docs/experiment_spec.md](docs/experiment_spec.md), with vocabulary in [GLOSSARY.md](GLOSSARY.md) and the budget/estimator decision in [ADR 0001](docs/adr/0001-budget-and-primary-estimator.md).
+
+Do not commit DIC Challenge images or derived artifacts before licensing is verified. This experiment generates its own texture and requires no external datasets or model weights.
 
 ## License
 
-MIT; see `LICENSE`.
+MIT; see [LICENSE](LICENSE).

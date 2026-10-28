@@ -1,6 +1,21 @@
 """Spatially spread query initialization constrained to a binary specimen mask."""
 import numpy as np
 
+from .specimen import points_in_mask
+
+
+def lattice_baseline(mask: np.ndarray, spacing: float,
+                     offset: tuple[float, float]) -> np.ndarray:
+    """Clip an image-anchored lattice to the sampling region; its count is N."""
+    if not np.isfinite(spacing) or spacing <= 0:
+        raise ValueError("spacing must be finite and positive")
+    if len(offset) != 2 or not all(np.isfinite(v) and 0 <= v < spacing for v in offset):
+        raise ValueError("lattice offset must be in [0, spacing) on both axes")
+    x, y = np.meshgrid(np.arange(offset[0], mask.shape[1], spacing),
+                       np.arange(offset[1], mask.shape[0], spacing))
+    points = np.column_stack((x.ravel(), y.ravel()))
+    return points[points_in_mask(mask, points)]
+
 
 def sample_masked_grid(mask: np.ndarray, budget: int) -> np.ndarray:
     """Return up to `budget` points (x, y), all within mask.
