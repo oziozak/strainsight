@@ -23,6 +23,20 @@ The `gpu` extra pulls torch from the PyTorch cu128 index and the two model repos
 
 ## CoTracker3 offline
 
+The pipeline adapter is `strainsight.cotracker.CoTracker3Tracker`, selected by
+`uv run python -m strainsight.demo --tracker cotracker`. Its opt-in integration
+check is `uv run python scripts/smoke_cotracker_adapter.py` (optional
+`--checkpoint PATH`); it exercises the experiment/results-store boundary at two
+query budgets plus RGB input at twice the native resolution. The original
+`scripts/smoke_cotracker.py` remains the environment benchmark described below.
+The adapter defaults to `facebook/cotracker3` / `scaled_offline.pth` at revision
+`bf55ea50d4390e1820a267f131cd6587240fb2c5` and pins the built-in support grid to
+6×6 for every call. Run records include the checkpoint path and fixed visibility
+settings, synchronized tracking time, and peak allocated VRAM in bytes. Timing
+includes input/output transfers and excludes model initialization; peak allocation
+includes the resident model and is reset per call. CPU oracle runs report zero
+VRAM. Neither smoke script is collected by the default test suite.
+
 Checkpoint `facebook/cotracker3` / `scaled_offline.pth`, `CoTrackerPredictor(offline=True, window_len=60)`, 32-frame synthetic speckle sequence, queries on frame 0, median of 5 timed runs after a warm-up. Per-run time includes the predictor's resize and its 6×6 support grid.
 
 | Input frame | N queries | Time / run | Peak VRAM |

@@ -112,6 +112,7 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
     split = "dev" if case in dataset.dev else "test" if case in dataset.test else "custom"
     configuration.update({"method": "lattice_baseline", "tracker": tracker.name,
                           "support_grid_count": tracker.support_grid_count,
+                          "tracker_settings": tracks.configuration,
                           "generator_version": identity.version, "generator_sha256": identity.sha256,
                           "dataset_split": split, "numpy_version": np.__version__,
                           "estimator": "k_nearest",
@@ -124,7 +125,9 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
                           "speckle_stratum": "1.5–3 px" if config.speckle_size < 3 else "3–5 px",
                           "max_inversion_residual_px": sequence.max_inversion_residual,
                           "frames_sha256": hashlib.sha256(sequence.frames.tobytes()).hexdigest()})
-    record = RunRecord(uuid4().hex, configuration, metrics, len(query_points), perf_counter() - started)
+    record = RunRecord(uuid4().hex, configuration, metrics, len(query_points), perf_counter() - started,
+                       tracker_runtime_seconds=tracks.runtime_seconds,
+                       peak_vram_bytes=tracks.peak_vram_bytes)
     store.write(record)
     return ExperimentResult(record, sequence, query_points, tracks, evaluation_grid,
                             scored_frames, strain, truth, secondary_strain)
