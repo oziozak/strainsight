@@ -16,15 +16,15 @@ Initially the user supplies a binary specimen mask for frame 0; SAM integration 
 
 ## First runnable baseline
 
-Requires Python 3.10+.
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate           # Windows PowerShell: .venv\Scripts\Activate.ps1
-pip install -e '.[dev]'
-pytest
-python -m strainsight.demo
+uv sync --extra dev                 # add --extra gpu on the CUDA PC (CoTracker3, SAM 3.1)
+uv run pytest
+uv run python -m strainsight.demo
 ```
+
+GPU environment and measured CoTracker3 / SAM 3.1 facts: `docs/environment.md`.
 
 The demo creates a synthetic rectangular specimen, samples masked points, applies known uniaxial extension, and estimates axial engineering strain. This is **not** a benchmark on real DIC images.
 
