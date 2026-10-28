@@ -12,3 +12,7 @@ outputs/
 checkpoints/
 *.pt
 *.pth
+# Third-party DIC Challenge images (licence unknown; never commit)
+*.tif
+*.tiff
+*.zip
