@@ -6,11 +6,33 @@ build-backend = "setuptools.build_meta"
 name = "strainsight"
 version = "0.1.0"
 description = "Mask-guided adaptive point tracking for deformation analysis"
-requires-python = ">=3.10"
-dependencies = ["numpy>=1.24"]
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.26,<2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+# GPU stack: CoTracker3 tracking and SAM 3.1 segmentation (RTX 5070 Ti, cu128 wheels).
+gpu = [
+    "torch>=2.7",
+    "torchvision>=0.22",
+    "cotracker",
+    "sam3",
+    "einops",
+    "opencv-python",
+    "pycocotools",
+    "psutil",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
+cotracker = { git = "https://github.com/facebookresearch/co-tracker", rev = "82e02e8029753ad4ef13cf06be7f4fc5facdda4d" }
+sam3 = { git = "https://github.com/facebookresearch/sam3", rev = "f1647e8d0c1d280991f4d1b7d974c2704537fe66" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
