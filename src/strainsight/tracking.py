@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from .synthetic import UniformExtension
+from .synthetic import TensileMotion, UniformExtension
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,7 @@ class OracleTracker:
     name = "oracle"
     support_grid_count = 0
 
-    def __init__(self, motion: UniformExtension | None = None) -> None:
+    def __init__(self, motion: UniformExtension | TensileMotion | None = None) -> None:
         self.motion = motion or UniformExtension()
 
     def track(self, frames: np.ndarray, query_points: np.ndarray) -> Tracks:
