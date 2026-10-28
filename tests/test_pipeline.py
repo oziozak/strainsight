@@ -18,9 +18,15 @@ def test_uniform_extension_run_recovers_green_lagrange_and_persists(tmp_path):
     np.testing.assert_allclose(result.strain[-1, :, 0, 0], 0.105, atol=1e-12)
     np.testing.assert_allclose(result.strain[-1, :, 1, 1], -0.04545454545454547, atol=1e-12)
     np.testing.assert_allclose(result.strain[-1, :, 0, 1], 0, atol=1e-12)
+    np.testing.assert_allclose(result.fixed_radius_strain, result.strain, atol=1e-12)
     mae = result.record.metrics["full_field_exx_mae"]
     assert mae is not None and mae < 1e-12
     assert result.record.metrics["coverage_loss"] == 0
+    secondary_mae = result.record.metrics["fixed_radius_exx_mae"]
+    assert secondary_mae is not None and secondary_mae < 1e-12
+    assert result.record.metrics["fixed_radius_coverage_loss"] == 0
+    assert result.record.configuration["fixed_radius"] == 16
+    assert len(result.record.configuration["k"]) == len(result.evaluation_grid)
     assert result.record.query_count == len(result.query_points)
     assert result.record.query_count == len(np.unique(result.query_points, axis=0))
     assert result.record.runtime_seconds > 0
@@ -97,6 +103,25 @@ def test_injected_tracker_measurements_determine_strain_not_ground_truth(tmp_pat
     assert result.record.query_count == 523
 
 
+def test_variants_coincide_on_offset_lattice_baseline_for_non_affine_tracks(tmp_path):
+    class NonAffineTracker:
+        name = "non_affine_fixture"
+        support_grid_count = 0
+
+        def track(self, frames, query_points):
+            final = query_points.copy()
+            final[:, 0] += .0001 * (query_points[:, 0] - 256)**3
+            return Tracks(np.stack([query_points, final]), np.ones((2, len(query_points)), dtype=bool))
+
+    result = run_experiment(ExperimentConfig(frame_count=2, score_every=1, spacing=8,
+                                             lattice_offset=(1.5, 2.5)),
+                            NonAffineTracker(), ResultsStore(tmp_path))
+    counts = result.record.configuration["k"]
+    assert len(counts) == len(result.evaluation_grid)
+    assert min(counts) < max(counts)
+    np.testing.assert_allclose(result.strain, result.fixed_radius_strain, atol=1e-12)
+
+
 def test_lost_tracks_count_against_budget_and_show_as_coverage_loss(tmp_path):
     class LostTracker(OracleTracker):
         name = "lost_fixture"
@@ -111,10 +136,14 @@ def test_lost_tracks_count_against_budget_and_show_as_coverage_loss(tmp_path):
                             ResultsStore(tmp_path))
     assert result.record.query_count == 523
     assert result.record.metrics["coverage_loss"] == 0.5
+    assert result.record.metrics["fixed_radius_coverage_loss"] == 0.5
+    secondary_mae = result.record.metrics["fixed_radius_exx_mae"]
+    assert secondary_mae is not None and secondary_mae < 1e-12
     mae = result.record.metrics["full_field_exx_mae"]
     assert mae is not None and mae < 1e-12
     assert result.record.metrics["tracking_failure_fraction"] == 0.5
     assert np.isnan(result.strain[-1]).all()
+    assert np.isnan(result.fixed_radius_strain[-1]).all()
 
 
 @pytest.mark.parametrize("available", ["none", "five", "collinear"])
@@ -133,7 +162,10 @@ def test_unobservable_strain_is_missing_instead_of_a_zero_error(tmp_path, availa
     result = run_experiment(ExperimentConfig(frame_count=2, score_every=1), InsufficientTracker(), store)
     assert result.record.metrics["coverage_loss"] == 1
     assert result.record.metrics["full_field_exx_mae"] is None
+    assert result.record.metrics["fixed_radius_coverage_loss"] == 1
+    assert result.record.metrics["fixed_radius_exx_mae"] is None
     assert np.isnan(result.strain).all()
+    assert np.isnan(result.fixed_radius_strain).all()
     assert store.read(result.record.run_id) == result.record
 
 
@@ -142,12 +174,39 @@ def test_sequence_and_evaluation_grid_are_independent_of_query_placement(tmp_pat
     first = run_experiment(ExperimentConfig(frame_count=2, score_every=1), OracleTracker(), store)
     second = run_experiment(ExperimentConfig(frame_count=2, score_every=1, spacing=8,
                                              lattice_offset=(1.5, 2.5)), OracleTracker(), store)
+    assert second.record.configuration["fixed_radius"] == 20
     np.testing.assert_array_equal(first.sequence.frames, second.sequence.frames)
     np.testing.assert_array_equal(first.evaluation_grid, second.evaluation_grid)
     assert first.record.configuration["frames_sha256"] == second.record.configuration["frames_sha256"]
     assert not np.array_equal(first.sequence.frames[0], first.sequence.frames[-1])
     assert np.std(first.sequence.frames[0][first.sequence.specimen.specimen_mask]) > 10
     assert first.sequence.max_inversion_residual <= 0.01
+
+
+def test_fixed_radius_coverage_is_reported_separately_when_tracks_survive_only_locally(tmp_path):
+    class LocalTracker(OracleTracker):
+        def track(self, frames, query_points):
+            tracked = super().track(frames, query_points)
+            # Six query points in two rows near the centre of the gauge section.
+            tracked.visibility[:] = ((np.abs(query_points[:, 0] - 256) < 7)
+                                     & (query_points[:, 1] > 185)
+                                     & (query_points[:, 1] <= 192))
+            return tracked
+
+    store = ResultsStore(tmp_path)
+    result = run_experiment(ExperimentConfig(frame_count=2, score_every=1), LocalTracker(), store)
+    assert result.tracks.visibility[-1].sum() == 6
+    assert result.record.query_count == 523
+    assert result.record.metrics["coverage_loss"] == 0
+    coverage_loss = result.record.metrics["fixed_radius_coverage_loss"]
+    assert coverage_loss is not None and 0.9 < coverage_loss < 1
+    secondary_mae = result.record.metrics["fixed_radius_exx_mae"]
+    assert secondary_mae is not None and secondary_mae < 1e-12
+    centre = np.all(result.evaluation_grid == [256, 192], axis=1)
+    far = result.evaluation_grid[:, 0] < 200
+    assert np.isfinite(result.fixed_radius_strain[:, centre]).all()
+    assert np.isnan(result.fixed_radius_strain[:, far]).all()
+    assert store.read(result.record.run_id) == result.record
 
 
 def test_oracle_tracks_only_the_requested_material_positions(tmp_path):
