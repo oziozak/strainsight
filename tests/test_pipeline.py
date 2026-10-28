@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from strainsight.experiment import ExperimentConfig, run_experiment
+from strainsight.dataset import frozen_dataset
 from strainsight.results import ResultsStore
 from strainsight.synthetic import UniformExtension
 from strainsight.tracking import OracleTracker, Tracks
@@ -167,3 +168,33 @@ def test_pipeline_rejects_an_oracle_configured_for_a_different_sequence(tmp_path
     config = ExperimentConfig(frame_count=2, score_every=1, final_stretch=1.2)
     with pytest.raises(ValueError, match="oracle motion must match the synthetic sequence"):
         run_experiment(config, OracleTracker(), ResultsStore(tmp_path))
+
+
+def test_frozen_necking_run_records_generator_provenance_and_spatial_truth(tmp_path):
+    dataset = frozen_dataset()
+    case = dataset.dev[0]
+    config = ExperimentConfig.from_case(case, spacing=8)
+    store = ResultsStore(tmp_path)
+    result = run_experiment(config, OracleTracker(case.motion), store)
+    recorded = store.read(result.record.run_id).configuration
+    assert recorded["generator_version"] == dataset.identity.version
+    assert recorded["generator_sha256"] == dataset.identity.sha256
+    assert recorded["synthetic_case"]["seed"] == case.seed
+    assert recorded["synthetic_case"]["speckle_size"] == case.speckle_size
+    assert recorded["synthetic_case"]["noise_sigma"] == case.noise_sigma
+    assert recorded["synthetic_case"]["blur_sigma"] == case.blur_sigma
+    assert recorded["dataset_split"] == "dev"
+    assert result.scored_frames.tolist() == [4, 8, 12, 16, 20, 24, 28]
+    assert result.ground_truth_strain[-1, :, 0, 0].ptp() > 0.1
+    truth = result.sequence.ground_truth(28)
+    ex, ey = result.evaluation_grid.astype(int).T
+    np.testing.assert_allclose(result.ground_truth_strain[-1], truth.strain[ey, ex], atol=1e-12)
+    np.testing.assert_allclose(result.tracks.positions[-1],
+                               case.motion.forward(result.query_points, 1), atol=1e-12)
+
+
+def test_necking_oracle_must_match_the_entire_spatial_motion(tmp_path):
+    case = frozen_dataset().dev[0]
+    wrong_motion = replace(case.motion, band_center=case.band_center + 8)
+    with pytest.raises(ValueError, match="oracle motion must match the synthetic sequence"):
+        run_experiment(ExperimentConfig.from_case(case), OracleTracker(wrong_motion), ResultsStore(tmp_path))
