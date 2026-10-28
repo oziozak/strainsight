@@ -29,13 +29,17 @@ def _generator_sha256(manifest: dict) -> str:
     return digest.hexdigest()
 
 
-def generator_identity() -> GeneratorIdentity:
-    """Reject changes to the committed generator freeze before any method runs."""
+def _validated_manifest() -> tuple[dict, GeneratorIdentity]:
     manifest = json.loads(Path(__file__).with_name("synthetic_manifest.json").read_text())
     actual = _generator_sha256(manifest)
     if manifest.get("generator_sha256") != actual or manifest["generator_version"] != GENERATOR_VERSION:
         raise ValueError("frozen generator content hash mismatch; deliberately version and refreeze the generator")
-    return GeneratorIdentity(GENERATOR_VERSION, actual)
+    return manifest, GeneratorIdentity(GENERATOR_VERSION, actual)
+
+
+def generator_identity() -> GeneratorIdentity:
+    """Reject changes to the committed generator freeze before any method runs."""
+    return _validated_manifest()[1]
 
 
 @dataclass(frozen=True)
@@ -77,9 +81,11 @@ class FrozenDataset:
 
 def sample_case(seed: int) -> SyntheticCase:
     """Draw from the same PCG64 distribution regardless of split membership."""
-    generator_identity()
-    manifest = json.loads(Path(__file__).with_name("synthetic_manifest.json").read_text())
-    distribution = manifest["distribution"]
+    manifest, _ = _validated_manifest()
+    return _sample_case(seed, manifest["distribution"])
+
+
+def _sample_case(seed: int, distribution: dict) -> SyntheticCase:
     rng = np.random.Generator(np.random.PCG64(seed))
     while True:
         kind = rng.choice(distribution["kinds"], p=distribution["kind_probabilities"])
@@ -94,8 +100,7 @@ def sample_case(seed: int) -> SyntheticCase:
 
 
 def frozen_dataset() -> FrozenDataset:
-    identity = generator_identity()
-    manifest = json.loads(Path(__file__).with_name("synthetic_manifest.json").read_text())
-    dev = tuple(sample_case(seed) for seed in manifest["dev_seeds"])
-    test = tuple(sample_case(seed) for seed in manifest["test_seeds"])
+    manifest, identity = _validated_manifest()
+    dev = tuple(_sample_case(seed, manifest["distribution"]) for seed in manifest["dev_seeds"])
+    test = tuple(_sample_case(seed, manifest["distribution"]) for seed in manifest["test_seeds"])
     return FrozenDataset(dev, test, tuple(manifest["baseline_spacings"]), identity)

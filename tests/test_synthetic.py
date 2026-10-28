@@ -35,6 +35,16 @@ def test_necking_band_has_the_specified_green_lagrange_peak_and_fwhm():
     np.testing.assert_allclose(motion.strain_at(points, 0), 0, atol=1e-12)
 
 
+def test_uniform_material_positions_accept_integer_pixel_coordinates():
+    motion = TensileMotion("uniform", uniform_strain=0.1)
+    integers = np.array([[256, 212], [300, 192]])
+    floats = integers.astype(float)
+    np.testing.assert_allclose(motion.strain_at(integers, 1)[:, 0, 0], 0.1, atol=1e-12)
+    np.testing.assert_allclose(motion.strain_at(integers, 1), motion.strain_at(floats, 1), atol=1e-12)
+    np.testing.assert_allclose(motion.forward(integers, 1), motion.forward(floats, 1), atol=1e-12)
+    np.testing.assert_allclose(motion.inverse(motion.forward(integers, 1), 1), integers, atol=1e-12)
+
+
 @pytest.mark.parametrize("kind", ["uniform", "necking", "smooth"])
 def test_deformation_is_invertible_incompressible_and_matches_spatial_truth(kind):
     motion = TensileMotion(kind, 0.1, 24, 280, 0.4)

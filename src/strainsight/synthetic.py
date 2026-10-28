@@ -54,7 +54,7 @@ class TensileMotion:
             amplitude = 0.05 * self.peak_extra_strain
             return (self.uniform_strain + amplitude * np.cos(phase),
                     -amplitude * (2 * np.pi / 512) * np.sin(phase))
-        return np.full_like(x, self.uniform_strain), np.zeros_like(x)
+        return np.full(x.shape, self.uniform_strain, dtype=float), np.zeros(x.shape, dtype=float)
 
     def _stretch(self, x: np.ndarray, time: float) -> tuple[np.ndarray, np.ndarray]:
         if not np.isfinite(time) or not 0 <= time <= 1:
