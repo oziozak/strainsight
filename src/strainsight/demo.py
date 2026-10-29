@@ -11,6 +11,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--results-dir", type=Path, default=Path("outputs/results"))
     parser.add_argument("--spacing", type=float, default=6.4)
+    parser.add_argument("--method", choices=("lattice_baseline", "adaptive"), default="lattice_baseline")
     parser.add_argument("--offset", type=float, nargs=2, default=(0.0, 0.0), metavar=("X", "Y"))
     parser.add_argument("--tracker", choices=("oracle", "cotracker"), default="oracle")
     parser.add_argument("--checkpoint", type=Path, help="local CoTracker3 offline checkpoint")
@@ -19,7 +20,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.checkpoint is not None and args.tracker != "cotracker":
         parser.error("--checkpoint requires --tracker cotracker")
-    config = ExperimentConfig(spacing=args.spacing, lattice_offset=tuple(args.offset))
+    config = ExperimentConfig(spacing=args.spacing, lattice_offset=tuple(args.offset), method=args.method)
     store = ResultsStore(args.results_dir)
     tracker: Tracker
     if args.tracker == "cotracker":
@@ -31,6 +32,7 @@ def main() -> None:
     result = run_experiment(config, tracker, store)
     record = store.read(result.record.run_id)
     print(f"Run: {record.run_id}")
+    print(f"Method: {record.configuration['method']}")
     print(f"Lattice baseline query budget: {record.query_count}")
     print(f"Full-field E_XX MAE: {record.metrics['full_field_exx_mae']}")
     print(f"Coverage loss: {record.metrics['coverage_loss']}")
