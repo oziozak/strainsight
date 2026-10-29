@@ -160,8 +160,26 @@ uv run pytest tests/test_assistant.py
 
 ## Development
 
+Decision-rule analysis reads an explicitly selected set of completed records:
+
+```python
+from strainsight.analysis import analyze_results
+
+report = analyze_results(store, selected_run_ids, seed=42)
+print(report.primary.passes, report.primary.high_strain_ci)
+```
+
+The typed report includes paired effects, a 10,000-resample sequence-cluster
+bootstrap, the 5% full-field non-inferiority check, and separate descriptive
+summaries by spacing, tracker, estimator, and speckle stratum. See the
+[analysis contract](docs/decision_rule.md) for required metrics, pairing rules,
+and minimum inputs. Fixture tests exercise this without running held-out
+experiments; the experiment-grid milestone still supplies adaptive runs and
+high-strain metrics.
+
 ```bash
 uv run python -m mypy src/strainsight tests
+uv run python -m pytest tests/test_analysis.py
 uv run python -m pytest tests/test_strain.py
 uv run python -m pytest tests/test_pipeline.py
 uv run python -m pytest
