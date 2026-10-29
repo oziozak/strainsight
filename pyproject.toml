@@ -11,6 +11,7 @@ dependencies = ["numpy>=1.26,<2"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "mypy>=1"]
+real = ["Pillow>=10"]
 # GPU stack: CoTracker3 tracking and SAM 3.1 segmentation (RTX 5070 Ti, cu128 wheels).
 gpu = [
     "torch>=2.7",

@@ -32,3 +32,25 @@ checkpoints/
 *.jpeg
 *.mp4
 *.avi
+# DIC Challenge data and derivatives, including text annotations / track exports.
+# Keep real assets external; these reserved names also guard accidental copies.
+*[Ss]ample6*
+*[Ss]ample14*
+*[Tt]elecentric*
+*[Dd][Ii][Cc][-_ ][Cc]hallenge*
+masks/
+tracks/
+annotations/
+*.csv
+*.jsonl
+*.pkl
+*.pickle
+*.bmp
+*.pgm
+*.pbm
+*.ppm
+*.[Tt][Ii][Ff]
+*.[Tt][Ii][Ff][Ff]
+*.[Pp][Nn][Gg]
+*.[Jj][Pp][Gg]
+*.[Jj][Pp][Ee][Gg]
