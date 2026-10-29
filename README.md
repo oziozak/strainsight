@@ -49,8 +49,9 @@ query points, short trajectory trails, and optional reference positions. Red
 crosses mark invisible predictions; per-frame visible/lost counts include
 non-finite positions, which have no marker. The HTML embeds the frames and tracks
 and works offline without extra packages or a server. The file is written from
-that invocation's tracking output; existing SQLite records contain summary
-metrics rather than saved video/tracks, so rerun with `--visualize` to inspect them.
+that invocation's tracking output; SQLite records contain summary metrics and
+scored strain samples rather than saved video/tracks, so rerun with `--visualize`
+to inspect the tracks.
 
 Records live in `outputs/results/runs.sqlite3` by default. Each run gets a distinct ID; inserting another record with that ID raises `FileExistsError`. SQLite transactions make writes atomic. Read a completed record through the store:
 
@@ -96,6 +97,65 @@ result = run_experiment(ExperimentConfig.from_case(case), OracleTracker(case.mot
 ```
 
 The [generator protocol](docs/synthetic_generator.md) defines the strain convention, motion map, texture, noise/blur distributions, hash inputs, and intentional refreezing procedure. Synthetic frames are generated on demand and are not committed.
+
+## Results assistant
+
+The assistant tool layer reads an existing results store through SQLite's read-only
+mode. Run listing retrieves summaries without loading saved strain samples.
+It exposes only `list_runs`, `metrics`, `strain_at_point`, `strain_in_region`,
+and `compare_methods`; tool calls cannot run experiments or change configuration.
+You can inspect the same outputs directly without a model or network connection:
+
+```python
+from strainsight.assistant import ResultsTools
+
+tools = ResultsTools("outputs/results")
+runs = tools.call("list_runs", {})
+run_id = runs.values["runs.0.run_id"].value  # Store must contain a completed run.
+metrics = tools.call("metrics", {"run_id": run_id})
+print(metrics.values["full_field_exx_mae"])
+```
+
+Every output scalar carries its source run IDs. `metrics` also exposes run resource
+measurements and configuration such as spacing, lattice offset, estimator, and
+scored frame indices, using keys such as `configuration.scored_frames.0`.
+`compare_methods` accepts `baseline_run_id`, `candidate_run_id`, and `metric`.
+It requires different recorded methods at equal query budget with matching recorded
+experimental conditions. Python computes `difference` as candidate minus baseline
+and `percent_change` as that difference divided by the absolute baseline, times a
+hundred. Missing measurements remain unavailable; a zero baseline gives no percentage.
+
+New experiment records save Green–Lagrange `exx`, `eyy`, and `exy` at every scored
+evaluation position for both `k_nearest` and `fixed_radius`. Point tools accept
+`run_id`, `frame`, `x`, `y`, `component`, and `estimator`, and require an exact saved
+reference-frame position in tracker-input pixels. Rectangular queries replace `x`
+and `y` with inclusive `x_min`, `y_min`, `x_max`, and `y_max` bounds and return a mean,
+sample counts, and coverage loss. They average only defined saved values. There is
+no interpolation or reconstruction at query time. Older records without strain
+samples remain readable and return unavailable strain.
+
+`ResultsAssistant(directory, client).answer(question)` uses a provider-neutral
+`ModelClient.respond(messages, tools)` interface. An adapter receives `Message`
+objects and JSON-schema `ToolDefinition` objects and returns a `ModelReply` with
+either `ToolCall` objects or an answer template. The provider adapter is a separate
+integration; this layer needs no provider SDK, credentials, or network.
+
+The model writes placeholders such as `{{lookup:full_field_exx_mae}}`, where
+`lookup` is the tool call ID. Code substitutes the exact output value and appends
+`[run …]` citations, including both runs for computed differences. Literal numeric
+characters, uppercase Roman numerals, and common English number words (including
+multipliers such as “twofold”) are rejected, even if they match a tool
+value. Unknown placeholders, reused call IDs, and sources from earlier questions
+are rejected. `check_grounding(answer, template, results)` also rejects edits made
+after rendering. These checks verify numeric provenance; they do not assess whether
+the model's prose correctly interprets the measurements.
+
+The [scripted assistant tests](tests/test_assistant.py) exercise the model boundary
+against a fixture store and demonstrate both grounded answers and rejected numbers:
+
+```bash
+uv run pytest tests/test_assistant.py
+```
 
 ## Development
 

@@ -8,7 +8,7 @@ from uuid import uuid4
 import numpy as np
 
 from .dataset import SyntheticCase, frozen_dataset, generator_identity
-from .results import ResultsStore, RunRecord
+from .results import ResultsStore, RunRecord, StrainSample
 from .sampling import lattice_baseline
 from .specimen import dog_bone
 from .strain import (BASELINE_RADIUS_SPACINGS, CONDITION_LIMIT, MINIMUM_NEIGHBOURS,
@@ -125,9 +125,18 @@ def run_experiment(config: ExperimentConfig, tracker: Tracker, store: ResultsSto
                           "speckle_stratum": "1.5–3 px" if config.speckle_size < 3 else "3–5 px",
                           "max_inversion_residual_px": sequence.max_inversion_residual,
                           "frames_sha256": hashlib.sha256(sequence.frames.tobytes()).hexdigest()})
+    strain_samples = {}
+    for estimator, field in (("k_nearest", strain), ("fixed_radius", secondary_strain)):
+        strain_samples[estimator] = [
+            StrainSample(int(frame), float(x), float(y),
+                         float(tensor[0, 0]) if np.isfinite(tensor).all() else None,
+                         float(tensor[1, 1]) if np.isfinite(tensor).all() else None,
+                         float(tensor[0, 1]) if np.isfinite(tensor).all() else None)
+            for frame, tensors in zip(scored_frames, field)
+            for (x, y), tensor in zip(evaluation_grid, tensors)]
     record = RunRecord(uuid4().hex, configuration, metrics, len(query_points), perf_counter() - started,
                        tracker_runtime_seconds=tracks.runtime_seconds,
-                       peak_vram_bytes=tracks.peak_vram_bytes)
+                       peak_vram_bytes=tracks.peak_vram_bytes, strain_samples=strain_samples)
     store.write(record)
     return ExperimentResult(record, sequence, query_points, tracks, evaluation_grid,
                             scored_frames, strain, truth, secondary_strain)
