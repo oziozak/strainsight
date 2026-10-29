@@ -2,7 +2,7 @@
 
 Measuring deformation of a stretched specimen from video, and testing whether measurement-guided query placement beats a lattice baseline at the same query budget.
 
-The experiment runs synthetic uniform-extension, localized-necking, and smooth control sequences through lattice placement, oracle or CoTracker3 offline tracking, k-nearest and fixed-radius strain estimators, full-field evaluation, and an immutable results store. A frozen generator defines 8 dev and 24 test sequences from one distribution. Oracle tracking runs on CPU with NumPy; CoTracker3 uses the optional GPU environment. Adaptive placement, the SAM 3.1 pipeline adapter, and real-data evaluation are future work.
+The experiment runs synthetic uniform-extension, localized-necking, and smooth control sequences through lattice or adaptive placement, oracle or CoTracker3 offline tracking, k-nearest and fixed-radius strain estimators, full-field evaluation, and an immutable results store. A frozen generator defines 8 dev and 24 test sequences from one distribution. Oracle tracking runs on CPU with NumPy; CoTracker3 uses the optional GPU environment. Adaptive placement is tested under oracle tracking; weight tuning, the SAM 3.1 pipeline adapter, and real-data evaluation are future work.
 
 ## Run the experiment
 
@@ -23,6 +23,49 @@ Choose a baseline spacing, a sub-spacing lattice offset, and a results directory
 ```bash
 uv run python -m strainsight.demo --spacing 8 --offset 1.5 2.5 --results-dir outputs/results
 ```
+
+Select adaptive placement at the same lattice-defined query budget:
+
+```bash
+uv run python -m strainsight.demo --method adaptive --spacing 8 --offset 1.5 2.5
+```
+
+Adaptive placement first fixes a square coarse lattice at 1.5× baseline spacing
+and a geometry-only coverage floor. Each region is the nearest-coarse-point cell;
+the floor supplies at least `MINIMUM_NEIGHBOURS` points within the fixed radius
+at its coarse-point centre. This is a regional count guarantee; conditioning
+failures or track loss can still produce undefined strain and are reported.
+The floor is fixed before tracking and never depends on measured strain.
+
+The coarse pass guides placement only. Its reconstructed Green–Lagrange field
+gives a local strain-gradient magnitude, multiplied by baseline spacing to make
+it dimensionless. The coverage term is the fractional neighbour deficit of the
+coarse geometry relative to the intact baseline at each region centre. The
+weighted sum is multiplied by the local fraction of finite visible coarse
+tracks, averaged over a trailing window, then maximized over all frames. Under
+oracle tracking visibility is one, so the gate is inactive; the run record states
+this explicitly. Coverage uses geometry so uncertainty never earns a score bonus.
+
+Remaining queries use proportional region allocations with integer rounding
+and candidate-capacity redistribution. Within each region queries are spread
+on a nested square sub-lattice at half the baseline spacing, preserving the
+shared lattice offset. Every coarse query and coverage-floor query is retained
+in one measurement pass over exactly N distinct queries. Only those measurement
+tracks produce reported strain, with k calibrated from the intact baseline.
+
+`strainsight.adaptive.prepare_adaptive(mask, spacing, offset)` fixes the geometry;
+`adaptive_queries(plan, coarse_tracks, refinement_config)` receives only that
+geometry and coarse measurements. It has no sequence, motion, or ground-truth
+input. `RefinementConfig` defaults to gradient weight 1, coverage weight 0.1 and
+a three-frame trailing mean. These are provisional defaults, recorded in every
+run; dev-only CoTracker tuning and parameter freezing remain a later milestone.
+No adaptive performance claim or held-out benchmark is implied.
+
+Adaptive records include coarse and coverage query counts, region scores and
+refinement allocations, visibility-gate status, and runtime/VRAM for each pass.
+`tracker_runtime_seconds` totals both passes (or is `None` if either timing is
+unknown); `peak_vram_bytes` is the larger pass peak. `ExperimentResult` also
+exposes `adaptive_plan` and `coarse_tracks` for inspection.
 
 On a CUDA host with the `gpu` extra installed, select CoTracker3 offline:
 
@@ -95,6 +138,9 @@ sequence = case.render()  # 32 grayscale frames, specimen masks, and motion.
 truth = sequence.ground_truth(28)  # Dense reference displacement and strain.
 result = run_experiment(ExperimentConfig.from_case(case), OracleTracker(case.motion),
                         ResultsStore("outputs/results"))
+# Use the same case, spacing and offset for a paired adaptive dev run:
+adaptive = run_experiment(ExperimentConfig.from_case(case, method="adaptive"),
+                          OracleTracker(case.motion), ResultsStore("outputs/results"))
 ```
 
 The [generator protocol](docs/synthetic_generator.md) defines the strain convention, motion map, texture, noise/blur distributions, hash inputs, and intentional refreezing procedure. Synthetic frames are generated on demand and are not committed.
@@ -182,10 +228,17 @@ uv run python -m mypy src/strainsight tests
 uv run python -m pytest tests/test_analysis.py
 uv run python -m pytest tests/test_strain.py
 uv run python -m pytest tests/test_pipeline.py
+uv run python -m pytest tests/test_adaptive.py
 uv run python -m pytest
 ```
 
 Pipeline tests inject trackers at the agreed experiment boundary and check the physics, geometry, budget, independent evaluation, loss handling, inverse-warp rejection, and results-store immutability. The old farthest-point sampler and two-point engineering strain estimator remain only as legacy sanity checks in `tests/test_core.py`.
+
+Adaptive pipeline checks cover the spacing curve and shared offsets, regional
+coverage, measured-band allocation, temporal smoothing and late bands, visibility
+suppression, and separation of coarse compute from measurement strain. Direct
+placement tests provide no ground truth and exercise zero scores, fully lost
+tracks, saturated regions, and infeasible geometry.
 
 Estimator tests use the public k-nearest and fixed-radius APIs to check affine recovery, baseline agreement for a nonlinear displacement on independent evaluation grids and lattice offsets, shared observability rules, and a Gaussian displacement band with analytic Green–Lagrange truth. The band's error is small but nonzero and decreases as query density increases: k-nearest retains its coarse-baseline calibration, and fixed-radius is checked along the budget curve.
 

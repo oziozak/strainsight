@@ -4,10 +4,193 @@ import numpy as np
 import pytest
 
 from strainsight.experiment import ExperimentConfig, run_experiment
+from strainsight.adaptive import RefinementConfig
 from strainsight.dataset import frozen_dataset
 from strainsight.results import ResultsStore
+from strainsight.sampling import lattice_baseline
+from strainsight.strain import MINIMUM_NEIGHBOURS, baseline_neighbour_counts
 from strainsight.synthetic import UniformExtension
 from strainsight.tracking import OracleTracker, Tracks
+
+
+def test_adaptive_oracle_run_keeps_baseline_budget_and_calibration(tmp_path):
+    store = ResultsStore(tmp_path)
+    config = ExperimentConfig(frame_count=2, score_every=1, spacing=8,
+                              lattice_offset=(1.5, 2.5))
+    baseline = run_experiment(config, OracleTracker(), store)
+    adaptive = run_experiment(replace(config, method="adaptive"), OracleTracker(), store)
+    assert adaptive.record.query_count == baseline.record.query_count
+    assert len(np.unique(adaptive.query_points, axis=0)) == baseline.record.query_count
+    np.testing.assert_array_equal(adaptive.evaluation_grid, baseline.evaluation_grid)
+    assert adaptive.record.configuration["k"] == baseline.record.configuration["k"]
+    assert adaptive.record.configuration["method"] == "adaptive"
+    qx, qy = np.floor(adaptive.query_points + .5).astype(int).T
+    assert adaptive.sequence.specimen.sampling_region[qy, qx].all()
+    np.testing.assert_allclose(adaptive.strain[-1, :, 0, 0], .105, atol=1e-12)
+    np.testing.assert_allclose(adaptive.fixed_radius_strain[-1, :, 0, 0], .105, atol=1e-12)
+    assert store.read(adaptive.record.run_id) == adaptive.record
+
+
+def test_adaptive_coarse_compute_is_recorded_but_only_measurement_tracks_report_strain(tmp_path):
+    class TwoPassTracker:
+        name = "two_pass_fixture"
+        support_grid_count = 36
+
+        def __init__(self):
+            self.queries = []
+
+        def track(self, frames, query_points):
+            self.queries.append(query_points.copy())
+            # Deliberately disagree with truth and with the measurement pass.
+            stretch = 1.4 if len(self.queries) == 1 else 1.2
+            tracks = OracleTracker(UniformExtension(stretch)).track(frames, query_points)
+            return replace(tracks, runtime_seconds=.25 if len(self.queries) == 1 else .5,
+                           peak_vram_bytes=200 if len(self.queries) == 1 else 100)
+
+    tracker = TwoPassTracker()
+    store = ResultsStore(tmp_path)
+    result = run_experiment(ExperimentConfig(method="adaptive", frame_count=2, score_every=1),
+                            tracker, store)
+    assert len(tracker.queries) == 2
+    coarse, measurement = tracker.queries
+    np.testing.assert_array_equal(result.query_points, measurement)
+    for point in coarse:
+        assert np.count_nonzero(np.all(measurement == point, axis=1)) == 1
+    np.testing.assert_allclose(result.strain[-1, :, 0, 0], .22, atol=1e-12)
+    np.testing.assert_allclose(result.fixed_radius_strain[-1, :, 0, 0], .22, atol=1e-12)
+    assert result.record.tracker_runtime_seconds == .75
+    assert result.record.peak_vram_bytes == 200
+    adaptive = result.record.configuration["adaptive"]
+    assert adaptive["coarse_query_count"] == len(coarse)
+    assert adaptive["coarse_runtime_seconds"] == .25
+    assert adaptive["measurement_runtime_seconds"] == .5
+    assert store.read(result.record.run_id) == result.record
+    for samples in store.read(result.record.run_id).strain_samples.values():
+        # Saved fields used by the results assistant also come from measurement.
+        np.testing.assert_allclose(np.array([sample.exx for sample in samples], dtype=float),
+                                   .22, atol=1e-12)
+
+
+def test_adaptive_refinement_follows_only_the_coarse_measured_band(tmp_path):
+    class MeasuredBandTracker:
+        name = "measured_band_fixture"
+        support_grid_count = 0
+
+        def track(self, frames, query_points):
+            positions = np.broadcast_to(query_points, (len(frames), *query_points.shape)).copy()
+            # A displacement band supplied as measurements, without a motion/truth API.
+            band = 6 * np.exp(-(query_points[:, 0] - 256)**2 / (2 * 12**2))
+            positions[1:, :, 0] += band
+            return Tracks(positions, np.ones(positions.shape[:2], dtype=bool))
+
+    result = run_experiment(ExperimentConfig(method="adaptive", frame_count=5, score_every=4),
+                            MeasuredBandTracker(), ResultsStore(tmp_path))
+    plan = result.adaptive_plan
+    assert plan is not None
+    score = np.asarray(result.record.configuration["adaptive"]["region_scores"])
+    near = np.abs(plan.coarse_points[:, 0] - 256) < 40
+    far = np.abs(plan.coarse_points[:, 0] - 256) > 80
+    assert score[near].mean() > 2 * score[far].mean()
+    # Region counts account for the fillets' greater area away from the band.
+    counts = np.asarray(result.record.configuration["adaptive"]["refinement_counts"])
+    assert counts[near].mean() > counts[far].mean()
+    quotas = counts.sum() * score / score.sum()
+    assert np.max(np.abs(counts - quotas)) < 1  # Integer rounding only.
+
+
+@pytest.mark.parametrize("spacing", [4., 5.3, 6.4, 8.])
+@pytest.mark.parametrize("offset", [(0., 0.), (1.2, 2.3)])
+def test_adaptive_geometry_floor_and_nested_lattice_across_budget_curve(tmp_path, spacing, offset):
+    result = run_experiment(ExperimentConfig(method="adaptive", spacing=spacing, lattice_offset=offset,
+                                             frame_count=2, score_every=1),
+                            OracleTracker(), ResultsStore(tmp_path))
+    plan = result.adaptive_plan
+    assert plan is not None
+    mask = result.sequence.specimen.sampling_region
+    baseline = lattice_baseline(mask, spacing, offset)
+    np.testing.assert_array_equal(plan.coarse_points, lattice_baseline(mask, 1.5 * spacing, offset))
+    assert len(result.query_points) == len(baseline)
+    assert len(np.unique(result.query_points, axis=0)) == len(baseline)
+    # Every point is on the same nested square lattice with the shared offset.
+    lattice_indices = (result.query_points - offset) / (spacing / 2)
+    np.testing.assert_allclose(lattice_indices, np.rint(lattice_indices), atol=1e-12)
+    counts = baseline_neighbour_counts(np.vstack((plan.coarse_points, plan.coverage_points)),
+                                       plan.coarse_points, 2.5 * spacing)
+    assert counts.min() >= MINIMUM_NEIGHBOURS
+    # The geometry-only floor should leave most of the budget for score allocation.
+    assert len(plan.coverage_points) / len(baseline) <= .085
+    assert result.record.configuration["adaptive"]["visibility_gate_active"] is False
+    assert "inactive" in result.record.configuration["adaptive"]["visibility_gate_note"]
+
+
+def test_adaptive_track_uncertainty_only_suppresses_scores_and_does_not_change_floor(tmp_path):
+    class TranslationTracker:
+        name = "translation_fixture"
+        support_grid_count = 0
+
+        def __init__(self, lost):
+            self.lost = lost
+
+        def track(self, frames, query_points):
+            positions = np.broadcast_to(query_points, (len(frames), *query_points.shape)).copy()
+            positions += [7, -3]
+            visibility = np.ones(positions.shape[:2], dtype=bool)
+            if self.lost:
+                visibility[:, query_points[:, 0] < 256] = False
+            return Tracks(positions, visibility)
+
+    config = ExperimentConfig(method="adaptive", frame_count=2, score_every=1,
+                               refinement=RefinementConfig(gradient_weight=0, coverage_weight=1))
+    store = ResultsStore(tmp_path)
+    full = run_experiment(config, TranslationTracker(False), store)
+    lost = run_experiment(config, TranslationTracker(True), store)
+    full_score = np.asarray(full.record.configuration["adaptive"]["region_scores"])
+    lost_score = np.asarray(lost.record.configuration["adaptive"]["region_scores"])
+    assert np.all(lost_score <= full_score)
+    assert np.any(lost_score < full_score)
+    assert lost.record.configuration["adaptive"]["visibility_gate_active"] is True
+    assert full.adaptive_plan is not None and lost.adaptive_plan is not None
+    np.testing.assert_array_equal(full.adaptive_plan.coverage_points, lost.adaptive_plan.coverage_points)
+    assert lost.record.query_count == full.record.query_count
+
+
+def test_adaptive_temporal_max_finds_late_bands_and_smoothing_suppresses_spikes(tmp_path):
+    class IntermittentBandTracker:
+        name = "intermittent_band_fixture"
+        support_grid_count = 0
+
+        def __init__(self, band_frames):
+            self.band_frames = band_frames
+
+        def track(self, frames, query_points):
+            positions = np.broadcast_to(query_points, (len(frames), *query_points.shape)).copy()
+            band = 6 * np.exp(-(query_points[:, 0] - 256)**2 / (2 * 12**2))
+            positions[self.band_frames, :, 0] += band
+            return Tracks(positions, np.ones(positions.shape[:2], dtype=bool))
+
+    config = ExperimentConfig(method="adaptive", frame_count=8, score_every=7,
+                               refinement=RefinementConfig(coverage_weight=0))
+    store = ResultsStore(tmp_path)
+    scores = []
+    for frames in ([2], [2, 3, 4], [5, 6, 7]):
+        result = run_experiment(config, IntermittentBandTracker(frames), store)
+        scores.append(np.asarray(result.record.configuration["adaptive"]["region_scores"]))
+    # A three-frame band survives the mean, a single-frame spike is diluted.
+    np.testing.assert_allclose(scores[0], scores[1] / 3, atol=1e-12)
+    np.testing.assert_allclose(scores[1], scores[2], atol=1e-12)
+    assert scores[2].max() > .01
+
+
+def test_adaptive_rejects_a_coarse_pass_with_missing_frames(tmp_path):
+    class TruncatedTracker(OracleTracker):
+        def track(self, frames, query_points):
+            tracks = super().track(frames, query_points)
+            # Malformed coarse output must fail before starting measurement.
+            return replace(tracks, positions=tracks.positions[:1], visibility=tracks.visibility[:1])
+
+    with pytest.raises(ValueError, match="coarse tracker must return.*given query points"):
+        run_experiment(ExperimentConfig(method="adaptive", frame_count=2, score_every=1),
+                       TruncatedTracker(), ResultsStore(tmp_path))
 
 
 def test_uniform_extension_run_recovers_green_lagrange_and_persists(tmp_path):
