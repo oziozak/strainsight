@@ -3,10 +3,10 @@ revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'darwin'",
-    "python_full_version < '3.15' and sys_platform == 'darwin'",
     "python_full_version >= '3.15' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.15' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "(python_full_version >= '3.15' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version >= '3.15' and sys_platform != 'darwin' and sys_platform != 'linux')",
+    "python_full_version < '3.15' and sys_platform == 'darwin'",
+    "python_full_version < '3.15' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "(python_full_version < '3.15' and platform_machine != 'aarch64' and sys_platform == 'linux') or (python_full_version < '3.15' and sys_platform != 'darwin' and sys_platform != 'linux')",
 ]
 
@@ -1250,6 +1250,9 @@ gpu = [
     { name = "torch" },
     { name = "torchvision" },
 ]
+real = [
+    { name = "pillow" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1258,6 +1261,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1" },
     { name = "numpy", specifier = ">=1.26,<2" },
     { name = "opencv-python", marker = "extra == 'gpu'" },
+    { name = "pillow", marker = "extra == 'real'", specifier = ">=10" },
     { name = "psutil", marker = "extra == 'gpu'" },
     { name = "pycocotools", marker = "extra == 'gpu'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7" },
@@ -1265,7 +1269,7 @@ requires-dist = [
     { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.7", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchvision", marker = "extra == 'gpu'", specifier = ">=0.22", index = "https://download.pytorch.org/whl/cu128" },
 ]
-provides-extras = ["dev", "gpu"]
+provides-extras = ["dev", "real", "gpu"]
 
 [[package]]
 name = "sympy"

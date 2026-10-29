@@ -2,7 +2,7 @@
 
 Measuring deformation of a stretched specimen from video, and testing whether measurement-guided query placement beats a lattice baseline at the same query budget.
 
-The experiment runs synthetic uniform-extension, localized-necking, and smooth control sequences through lattice or adaptive placement, oracle or CoTracker3 offline tracking, k-nearest and fixed-radius strain estimators, full-field evaluation, and an immutable results store. A frozen generator defines 8 dev and 24 test sequences from one distribution. Oracle tracking runs on CPU with NumPy; CoTracker3 uses the optional GPU environment. Adaptive placement is tested under oracle tracking; weight tuning, the SAM 3.1 pipeline adapter, and real-data evaluation are future work.
+The experiment runs synthetic uniform-extension, localized-necking, and smooth control sequences through lattice or adaptive placement, oracle or CoTracker3 offline tracking, k-nearest and fixed-radius strain estimators, full-field evaluation, and an immutable results store. A frozen generator defines 8 dev and 24 test sequences from one distribution. Oracle tracking runs on CPU with NumPy; CoTracker3 uses the optional GPU environment. Sample6 has an external-data pipeline with a hand-mask path, dense-reference consistency scoring, and a grip-extension sanity check. Adaptive weight tuning and the SAM 3.1 pipeline adapter remain future work.
 
 ## Run the experiment
 
@@ -144,6 +144,29 @@ adaptive = run_experiment(ExperimentConfig.from_case(case, method="adaptive"),
 ```
 
 The [generator protocol](docs/synthetic_generator.md) defines the strain convention, motion map, texture, noise/blur distributions, hash inputs, and intentional refreezing procedure. Synthetic frames are generated on demand and are not committed.
+
+## Sample6 real data
+
+Prepare an external manifest with ordered image paths and aligned machine grip
+extension, plus a hand-annotated NPZ containing specimen, sampling-region, and
+gauge-section masks. Choose the fixed 1365×1024 specimen ROI and check both
+lateral edges remain inside throughout the sequence. On the CUDA host:
+
+```bash
+uv sync --extra dev --extra gpu --extra real
+uv run python -m strainsight.real_demo \
+  --manifest /external/sequence.json --mask /external/hand-mask.npz \
+  --roi 300 200 --edges-verified --results-dir outputs/sample6
+```
+
+The ROI origin above is illustrative; the human must choose it from the actual
+images. Every tracker call receives only the cropped, resized 512×384 input.
+The command saves dense-reference, lattice-baseline, and adaptive records plus
+full-frame pixel tracks. It prints the downscale limitation and labels dense
+agreement as consistency and grip trends as sanity only. Data, masks, tracks,
+annotations, and derived figures stay out of Git. See the [input and evaluation
+contract](docs/real_data.md) for annotation steps, manifest format, and metric
+definitions. This implements the pipeline; no Sample6 measurements are claimed.
 
 ## Results assistant
 
