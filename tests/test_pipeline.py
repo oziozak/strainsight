@@ -65,6 +65,10 @@ def test_adaptive_coarse_compute_is_recorded_but_only_measurement_tracks_report_
     assert adaptive["coarse_runtime_seconds"] == .25
     assert adaptive["measurement_runtime_seconds"] == .5
     assert store.read(result.record.run_id) == result.record
+    for samples in store.read(result.record.run_id).strain_samples.values():
+        # Saved fields used by the results assistant also come from measurement.
+        np.testing.assert_allclose(np.array([sample.exx for sample in samples], dtype=float),
+                                   .22, atol=1e-12)
 
 
 def test_adaptive_refinement_follows_only_the_coarse_measured_band(tmp_path):
