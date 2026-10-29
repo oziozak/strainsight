@@ -52,6 +52,7 @@ and works offline without extra packages or a server. The file is written from
 that invocation's tracking output; SQLite records contain summary metrics and
 scored strain samples rather than saved video/tracks, so rerun with `--visualize`
 to inspect the tracks.
+The figure caption credits the StrainSight synthetic sequences and their MIT license.
 
 Records live in `outputs/results/runs.sqlite3` by default. Each run gets a distinct ID; inserting another record with that ID raises `FileExistsError`. SQLite transactions make writes atomic. Read a completed record through the store:
 
@@ -172,7 +173,18 @@ Estimator tests use the public k-nearest and fixed-radius APIs to check affine r
 
 `src/strainsight/` contains the specimen geometry, synthetic generator, placement, tracker interface, strain estimator, experiment runner, results store, and demo. The full protocol and future milestones are in [docs/experiment_spec.md](docs/experiment_spec.md), with vocabulary in [GLOSSARY.md](GLOSSARY.md) and the budget/estimator decision in [ADR 0001](docs/adr/0001-budget-and-primary-estimator.md).
 
-Do not commit DIC Challenge images or derived artifacts before licensing is verified. This experiment generates its own texture and requires no external datasets or model weights.
+Do not commit DIC Challenge images or derived artifacts before licensing is verified.
+Keep external datasets outside the checkout; local frames, masks, tracks, hand
+annotations, results, and credentials must stay out of Git history. Ignore rules
+are a guard against accidental additions and can be bypassed with `git add -f`.
+The oracle experiment generates its own texture and requires no external datasets
+or model weights; CoTracker3 downloads its checkpoint separately.
+
+The [repository hygiene audit](docs/repository_hygiene_audit.md) records the audited
+revision, full-history dataset and secret checks, dataset credits, and commands to
+repeat before submission. Every future figure using an external dataset must
+include its source credit in the rendered caption and have verified redistribution
+permission before its images or derivatives are published.
 
 ## License
 
